@@ -71,6 +71,49 @@ func createNewNoteHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(note)
 }
 
+// get all notes (PAGINATION)
+func getNotesPaginationHandler(w http.ResponseWriter, r *http.Request) {
+	// read query params
+	// URL.Query()-> gives all query params as map
+	// ex-> /notes?page=2&limit=5 --> {"page": ["2"], "limit": ["5"] }
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+	page := 1   //default
+	limit := 10 //default
+	if pageStr != "" {
+		p, err := strconv.Atoi(pageStr)
+		if err == nil && p > 0 {
+			page = p
+		}
+	}
+	if limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err == nil && l > 0 {
+			limit = l
+		}
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.Query("SELECT id, title, content FROM notes LIMIT ? OFFESET ?", limit, offset)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var notes []Note
+	for rows.Next() {
+		var note Note
+		if err := rows.Scan(&note.ID, &note.Title, &note.Content); err != nil {
+			http.Error(w, "Error scanning row", http.StatusInternalServerError)
+			return
+		}
+		notes = append(notes, note)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(notes)
+}
+
 // get all notes (for GET request)
 func getNotesHandler(w http.ResponseWriter, r *http.Request) {
 	// SQL query to fetch all rows
@@ -161,6 +204,34 @@ func updateNoteHandler(w http.ResponseWriter, r *http.Request) {
 	updatedData.ID = id
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(updatedData)
+}
+
+func searchNotesHandler(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		http.Error(w, "Missing search query", http.StatusBadRequest)
+		return
+	}
+	// "%"+query+"%"-> for partial matching
+	rows, err := db.Query(
+		"SELECT id, title, content FROM notes WHERE title LIKE ? OR content LIKE ?",
+		"%"+query+"%", "%"+query+"%",
+	)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	var notes []Note
+	for rows.Next() {
+		var note Note
+		if err := rows.Scan(&note.ID, &note.Title, &note.Content); err != nil {
+			http.Error(w, "Error scanning row", http.StatusInternalServerError)
+			return
+		}
+		notes = append(notes, note)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(notes)
 }
 
 // MAIN Function
